@@ -4,19 +4,27 @@ async function getInstagramMedia(url) {
   try {
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       }
     });
+
     const html = await res.text();
 
-    const match = html.match(/"display_url":"(https?:\/\/[^"]+)"/);
-    if (match) {
-      return match[1].replace(/\\u0026/g, '&');
-    } else {
-      return null;
+    // Check for video first
+    const videoMatch = html.match(/property="og:video" content="([^"]+)"/);
+    if (videoMatch) {
+      return { type: 'video', url: videoMatch[1] };
     }
-  } catch (error) {
-    console.error('Error fetching Instagram:', error.message);
+
+    // Then check for image
+    const imageMatch = html.match(/property="og:image" content="([^"]+)"/);
+    if (imageMatch) {
+      return { type: 'photo', url: imageMatch[1] };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Error fetching media:', err.message);
     return null;
   }
 }
