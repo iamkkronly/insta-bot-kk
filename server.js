@@ -4,7 +4,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 
 // ✅ API keys inserted directly
-const TELEGRAM_BOT_TOKEN = '7703394411:AAGBv4kdto1dhlmBFYReTsmEVduSktS2RlU';
+const TELEGRAM_BOT_TOKEN = '7703394411:AAHhzdoMr07gUlGjlTFTQdPHoczRCa8WOB0';
 const REMOVE_BG_API_KEY = 'DkspPLqQGPu1FfeeWJfg7i6j';
 
 const app = express();
