@@ -1,67 +1,58 @@
-const { Telegraf } = require('telegraf');
 const express = require('express');
+const { Telegraf } = require('telegraf');
 const axios = require('axios');
+const FormData = require('form-data');
 
-const BOT_TOKEN = '7978136092:AAFg6ju52M4LKc7hMALvqaqSI2_BsKu3veo';
+// ✅ API keys inserted directly
+const TELEGRAM_BOT_TOKEN = '7703394411:AAGBv4kdto1dhlmBFYReTsmEVduSktS2RlU';
+const REMOVE_BG_API_KEY = 'DkspPLqQGPu1FfeeWJfg7i6j';
 
-const bot = new Telegraf(BOT_TOKEN);
 const app = express();
-const PORT = process.env.PORT || 10000;
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
-const userHistory = new Map();
-
-bot.start((ctx) => {
-  ctx.reply('👋 Welcome! Send a public Instagram post link to download photo or video.');
+// Render keeps web service alive
+app.get('/', (req, res) => {
+  res.send('✅ Background Remover Telegram Bot is running!');
 });
 
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id;
-  const url = ctx.message.text.trim();
+// Start server
+app.listen(process.env.PORT || 3000, () => {
+  console.log('🚀 Server started on Render');
+});
 
-  if (!url.includes('instagram.com')) {
-    return ctx.reply('❌ Please send a valid Instagram post link.');
-  }
-
+// Main background removal logic
+bot.on('photo', async (ctx) => {
   try {
-    // Proxy API to get direct media link
-    const response = await axios.get(`https://ig-api-4g7u.onrender.com/api?url=${encodeURIComponent(url)}`);
-    const { type, url: mediaUrl } = response.data;
+    await ctx.reply('⏳ Removing background...');
 
-    if (!mediaUrl) {
-      return ctx.reply('⚠️ Unable to extract media. Try another link.');
-    }
+    const photo = ctx.message.photo.pop(); // get highest quality
+    const file = await ctx.telegram.getFile(photo.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`;
 
-    await ctx.reply('✅ Media found! Sending...');
+    // Fetch image
+    const imageResp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
 
-    // Download media into memory
-    const fileRes = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(fileRes.data, 'binary');
+    // Send to Remove.bg
+    const form = new FormData();
+    form.append('image_file', Buffer.from(imageResp.data), 'image.jpg');
+    form.append('size', 'auto');
 
-    if (type === 'photo') {
-      await ctx.replyWithPhoto({ source: buffer });
-    } else if (type === 'video') {
-      await ctx.replyWithVideo({ source: buffer });
-    } else {
-      await ctx.reply(`⚠️ Unknown media type. Here's the link:\n${mediaUrl}`);
-    }
+    const response = await axios.post('https://api.remove.bg/v1.0/removebg', form, {
+      headers: {
+        ...form.getHeaders(),
+        'X-Api-Key': REMOVE_BG_API_KEY,
+      },
+      responseType: 'arraybuffer'
+    });
 
-    // Save user history (last 5)
-    const logs = userHistory.get(userId) || [];
-    logs.push(url);
-    if (logs.length > 5) logs.shift();
-    userHistory.set(userId, logs);
+    // Reply with result
+    await ctx.replyWithPhoto({ source: Buffer.from(response.data) }, { caption: '✅ Background removed!' });
+
   } catch (err) {
     console.error('❌ Error:', err.message);
-    await ctx.reply('❌ Failed to fetch or send media. Try another link.');
+    ctx.reply('⚠️ Something went wrong. Please try again.');
   }
 });
 
-app.get('/', (req, res) => {
-  res.send('🤖 Instagram Downloader Bot is running.');
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
+// Launch the bot
 bot.launch();
