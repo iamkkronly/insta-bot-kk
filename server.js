@@ -1,8 +1,8 @@
 const { Telegraf } = require('telegraf');
 const express = require('express');
+const axios = require('axios');
 const { getInstagramMedia } = require('./instagram');
 
-// Your Telegram Bot Token here
 const BOT_TOKEN = '7978136092:AAFg6ju52M4LKc7hMALvqaqSI2_BsKu3veo';
 
 const bot = new Telegraf(BOT_TOKEN);
@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 10000;
 const userHistory = new Map();
 
 bot.start((ctx) => {
-  ctx.reply('👋 Welcome! Send a public Instagram post link (photo or video) to download it.');
+  ctx.reply('👋 Send a public Instagram post (image or video) URL to download.');
 });
 
 bot.on('text', async (ctx) => {
@@ -25,30 +25,32 @@ bot.on('text', async (ctx) => {
 
   const media = await getInstagramMedia(url);
 
-  if (media) {
-    console.log('Sending media:', media.url);
+  if (media && media.url) {
+    console.log('Media URL:', media.url);
     await ctx.reply('✅ Media found! Sending...');
 
-    if (media.type === 'photo') {
-      try {
-        await ctx.replyWithPhoto({ url: media.url });
-      } catch (err) {
-        console.error('❌ Error sending photo:', err.message);
-        await ctx.reply(`❌ Telegram couldn't send this image.\nYou can download it here:\n${media.url}`);
+    try {
+      const response = await axios.get(media.url, {
+        responseType: 'arraybuffer',
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+
+      const buffer = Buffer.from(response.data, 'binary');
+
+      if (media.type === 'photo') {
+        await ctx.replyWithPhoto({ source: buffer });
+      } else if (media.type === 'video') {
+        await ctx.replyWithVideo({ source: buffer });
       }
-    } else if (media.type === 'video') {
-      try {
-        await ctx.replyWithVideo({ url: media.url });
-      } catch (err) {
-        console.error('❌ Error sending video:', err.message);
-        await ctx.reply(`❌ Telegram couldn't send this video.\nYou can download it here:\n${media.url}`);
-      }
+    } catch (error) {
+      console.error('❌ Error sending media:', error.message);
+      await ctx.reply(`❌ Telegram couldn't send the media.\n📎 Open in browser:\n${media.url}`);
     }
   } else {
-    await ctx.reply('⚠️ Could not download media. It may be private, deleted, or restricted.');
+    await ctx.reply('⚠️ Could not download media. It may be private or invalid.');
   }
 
-  // Store up to 5 recent URLs per user
+  // Store up to 5 URLs per user
   const logs = userHistory.get(userId) || [];
   logs.push(url);
   if (logs.length > 5) logs.shift();
@@ -56,11 +58,11 @@ bot.on('text', async (ctx) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('🤖 Telegram Instagram Bot is Running.');
+  res.send('🤖 Instagram Telegram Bot is Running.');
 });
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
 bot.launch();
