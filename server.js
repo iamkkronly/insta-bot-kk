@@ -4,8 +4,8 @@ const axios = require('axios');
 const FormData = require('form-data');
 
 // ✅ API keys inserted directly
-const TELEGRAM_BOT_TOKEN = '7703394411:AAHhzdoMr07gUlGjlTFTQdPHoczRCa8WOB0';
-const REMOVE_BG_API_KEY = 'DkspPLqQGPu1FfeeWJfg7i6j';
+const TELEGRAM_BOT_TOKEN = '7703394411:AAFN4Cxm2EgtpFtF2zy41ztzP8NG-NQtpRE';
+const REMOVE_BG_API_KEY = 'HgpSaBAx5BQHkn8NV72AAeRe';
 
 const app = express();
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
