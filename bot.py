@@ -1,69 +1,62 @@
 # © Kaustav Ray
 
 import os
+import re
 import tempfile
-import subprocess
 from pymongo import MongoClient
-from gridfs import GridFS
+import gridfs
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from yt_dlp import YoutubeDL
 
-# === CONFIGURATION ===
-BOT_TOKEN = "7978136092:AAHTEKdATbnj1ZL9DXdjXeOEyi39XG4EGmA"
-MONGO_URI = "mongodb+srv://xz21iwsb:iL8k1OGOqZCjhuvQ@cluster0.hwdnc9j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-# ======================
+# === CONFIG ===
+BOT_TOKEN = '7978136092:AAHTEKdATbnj1ZL9DXdjXeOEyi39XG4EGmA'
+MONGO_URI = 'mongodb+srv://xz21iwsb:iL8k1OGOqZCjhuvQ@cluster0.hwdnc9j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'
 
 client = MongoClient(MONGO_URI)
-db = client["insta_bot"]
-fs = GridFS(db)
+db = client['telegram_bot']
+fs = gridfs.GridFS(db)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📥 Send a public Instagram reel, post, or story link.")
+def is_instagram_url(text):
+    return bool(re.search(r'(https?://)?(www\.)?instagram\.com/[^\s]+', text))
 
-def is_instagram_link(url: str) -> bool:
-    return any(part in url for part in ["instagram.com/reel", "instagram.com/p", "instagram.com/stories"])
-
-async def handle_instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-
-    if not is_instagram_link(url):
-        await update.message.reply_text("❌ Please send a valid Instagram link.")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
         return
 
+    text = update.message.text
+    if not is_instagram_url(text):
+        await update.message.reply_text("Please send a valid Instagram link.")
+        return
+
+    await update.message.reply_text("Downloading from Instagram...")
+
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            command = [
-                "yt-dlp",
-                "-f", "best",
-                "-o", os.path.join(tmpdir, "%(id)s.%(ext)s"),
-                url
-            ]
-            result = subprocess.run(command, capture_output=True, text=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            file_path = tmp_file.name
 
-            if result.returncode != 0:
-                await update.message.reply_text(f"⚠️ yt-dlp failed:\n{result.stderr}")
-                return
+        ydl_opts = {
+            'outtmpl': file_path,
+            'quiet': True,
+            'format': 'best'
+        }
 
-            downloaded_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir)]
-            if not downloaded_files:
-                await update.message.reply_text("⚠️ No media found after download.")
-                return
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([text])
 
-            file_path = downloaded_files[0]
+        with open(file_path, 'rb') as f:
+            mongo_id = fs.put(f, filename=os.path.basename(file_path))
 
-            with open(file_path, "rb") as f:
-                file_id = fs.put(f, filename=os.path.basename(file_path))
+        with fs.get(mongo_id) as f:
+            await update.message.reply_video(f.read())
 
-            grid_out = fs.get(file_id)
-            await update.message.reply_video(video=grid_out, filename=grid_out.filename)
-
-            fs.delete(file_id)
+        fs.delete(mongo_id)
+        os.remove(file_path)
 
     except Exception as e:
-        await update.message.reply_text(f"🚫 Error: {str(e)}")
+        await update.message.reply_text(f"Error: {e}")
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_instagram))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
