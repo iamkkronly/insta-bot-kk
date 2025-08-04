@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-import yt_dlp
+import subprocess
 from pymongo import MongoClient
 from gridfs import GridFS
 from telegram import Update
@@ -18,43 +18,49 @@ db = client["insta_bot"]
 fs = GridFS(db)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📥 Send a public Instagram video, reel, or story link to download.")
+    await update.message.reply_text("📥 Send a public Instagram reel, post, or story link.")
 
 def is_instagram_link(url: str) -> bool:
-    return any(domain in url for domain in ["instagram.com/reel", "instagram.com/p", "instagram.com/stories"])
+    return any(part in url for part in ["instagram.com/reel", "instagram.com/p", "instagram.com/stories"])
 
 async def handle_instagram(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
     if not is_instagram_link(url):
-        await update.message.reply_text("❌ Please send a valid Instagram video, reel, or story link.")
+        await update.message.reply_text("❌ Please send a valid Instagram link.")
         return
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            ydl_opts = {
-                'outtmpl': os.path.join(tmpdir, '%(id)s.%(ext)s'),
-                'quiet': True,
-                'format': 'best',
-            }
+            command = [
+                "yt-dlp",
+                "-f", "best",
+                "-o", os.path.join(tmpdir, "%(id)s.%(ext)s"),
+                url
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                downloaded_path = ydl.prepare_filename(info)
+            if result.returncode != 0:
+                await update.message.reply_text(f"⚠️ yt-dlp failed:\n{result.stderr}")
+                return
 
-            # Upload to MongoDB
-            with open(downloaded_path, "rb") as f:
-                file_id = fs.put(f, filename=os.path.basename(downloaded_path))
+            downloaded_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir)]
+            if not downloaded_files:
+                await update.message.reply_text("⚠️ No media found after download.")
+                return
 
-            # Retrieve and send
+            file_path = downloaded_files[0]
+
+            with open(file_path, "rb") as f:
+                file_id = fs.put(f, filename=os.path.basename(file_path))
+
             grid_out = fs.get(file_id)
             await update.message.reply_video(video=grid_out, filename=grid_out.filename)
 
-            # Cleanup
             fs.delete(file_id)
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error downloading: {e}")
+        await update.message.reply_text(f"🚫 Error: {str(e)}")
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
